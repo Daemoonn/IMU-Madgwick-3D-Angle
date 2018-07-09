@@ -142,8 +142,8 @@ def acc(data):
     ay = 0.039 * ay
     az = 0.039 * az
 
-    print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az), end='\r')
-    return None
+    # print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az), end='\r')
+    return ax, ay, az
 
 
 q0, q1, q2, q3 = (1.0, 0.0, 0.0, 0.0)
@@ -152,7 +152,7 @@ angle = Angle()
 v = np.array([1.0, 0.0, 0.0])
 
 
-def IMU_Update(c, gx, gy, gz, T):
+def IMU_Update(c, gx, gy, gz, ax, ay, az, T):
     global q0, q1, q2, q3, his_q0, his_q1, his_q2, his_q3
     half_T = T / 2
 
@@ -343,9 +343,9 @@ while True:
         else:
             if start:
                 if filled:
-                    acc(get_acc(data))
+                    ax, ay, az = acc(get_acc(data))
                     gx, gy, gz, _ = angular_velocity(data)
-                    IMU_Update(c, gx, gy, gz, delta_time)
+                    IMU_Update(c, gx, gy, gz, ax, ay, az, delta_time)
                 else:
                     acc_filter(get_acc(data))
         start = True
