@@ -85,13 +85,13 @@ def angular_velocity(data):
     x, y, z, temp = get_gyro(data)
     # print('x: %d y: %d z: %d' % (x, y, z), end='\r')
     # 设置三轴角速度阈值，防止静止状态下漂移
-    threshold = 5
-    if -threshold <= x <= threshold:
-        x = 0
-    if -threshold <= y <= threshold:
-        y = 0
-    if -threshold <= z <= threshold:
-        z = 0
+    # threshold = 5
+    # if -threshold <= x <= threshold:
+    #     x = 0
+    # if -threshold <= y <= threshold:
+    #     y = 0
+    # if -threshold <= z <= threshold:
+    #     z = 0
 
     temp = 35 + (1.0 * temp + 13200) / 280
     x = x / 14.375 * math.pi / 180
@@ -142,7 +142,7 @@ def acc(data):
     ay = 0.039 * ay
     az = 0.039 * az
 
-    # print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az), end='\r')
+    # print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az))
     return ax, ay, az
 
 
@@ -150,11 +150,42 @@ q0, q1, q2, q3 = (1.0, 0.0, 0.0, 0.0)
 his_q0, his_q1, his_q2, his_q3 = (1.0, 0.0, 0.0, 0.0)
 angle = Angle()
 v = np.array([1.0, 0.0, 0.0])
+# X、Y、Z轴的比例误差
+ex_int, ey_int, ez_int = (0.0, 0.0, 0.0)
+IMU_KP = 1.5
+IMU_KI = 0.0005
 
 
 def IMU_Update(c, gx, gy, gz, ax, ay, az, T):
-    global q0, q1, q2, q3, his_q0, his_q1, his_q2, his_q3
+    global q0, q1, q2, q3, his_q0, his_q1, his_q2, his_q3, ex_int, ey_int, ez_int, IMU_KP, IMU_KI
     half_T = T / 2
+
+    if ax * ay * az == 0:
+        print('ax * ay * az is 0')
+        return
+
+    norm = math.sqrt(ax * ax + ay * ay + az * az)
+    ax /= norm
+    ay /= norm
+    az /= norm
+
+    vx = (his_q1 * his_q3 - his_q0 * his_q2) * 2
+    vy = (his_q0 * his_q1 + his_q2 * his_q3) * 2
+    vz = his_q0 * his_q0 - his_q1 * his_q1 - his_q2 * his_q2 + his_q3 * his_q3
+
+    # 向量外积再相减得到差分就是误差，两个单位向量的差积即为误差向量
+    ex = (ay * vz - az * vy)
+    ey = (az * vx - ax * vz)
+    ez = (ax * vy - ay * vx)
+
+    # 对误差进行PI计算
+    ex_int = ex_int + ex * IMU_KI
+    ey_int = ey_int + ey * IMU_KI
+    ez_int = ez_int + ez * IMU_KI
+
+    gx = gx + IMU_KP * ex + ex_int
+    gy = gy + IMU_KP * ey + ey_int
+    gz = gz + IMU_KP * ez + ez_int
 
     # 四元素的微分方程
     q0 = his_q0 + (-his_q1 * gx - his_q2 * gy - his_q3 * gz) * half_T
@@ -172,6 +203,13 @@ def IMU_Update(c, gx, gy, gz, ax, ay, az, T):
     q2q2 = q2 * q2
     q2q3 = q2 * q3
     q3q3 = q3 * q3
+
+    # 规范化Pitch、Roll轴四元数
+    norm = math.sqrt(q0q0 + q1q1 + q2q2 + q3q3)
+    q0 = q0 / norm
+    q1 = q1 / norm
+    q2 = q2 / norm
+    q3 = q3 / norm
 
     # 放在b系中算角度
     tv = np.array([2 * (q1q2 + q0q3), 1 - 2 * (q1q1 + q3q3), 2 * (q2q3 - q0q1)])
@@ -196,13 +234,6 @@ def IMU_Update(c, gx, gy, gz, ax, ay, az, T):
     v_tv2[1] = 0.0
     # print('V_Angle:%.3f' % getAngle(v, v_tv2), end='\r')
     # print(cou, rotate.getAngle(v, tv))
-
-    # 规范化Pitch、Roll轴四元数
-    norm = math.sqrt(q0q0 + q1q1 + q2q2 + q3q3)
-    q0 = q0 / norm
-    q1 = q1 / norm
-    q2 = q2 / norm
-    q3 = q3 / norm
 
     # 求解欧拉角
     angle.X = math.atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1)
