@@ -35,10 +35,10 @@ class ITG3205:
         # x、y、z轴的比例误差
         self.ex_int, self.ey_int, self.ez_int = (0.0, 0.0, 0.0)
 
-        self.ser = serial.Serial('COM5', 9600)
+        self.ser = serial.Serial('COM6', 115200)
 
         (self.wa, self.c) = (0,) * 2
-        self.frame_len = 20
+        self.frame_len = 80
         self.data = [0] * self.frame_len
         (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
         self.start = False
@@ -48,7 +48,7 @@ class ITG3205:
 
     def re_init(self):
         (self.wa, self.c) = (0,) * 2
-        self.frame_len = 20
+        self.frame_len = 80
         self.data = [0] * self.frame_len
         (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
         self.start = False
@@ -215,7 +215,6 @@ class ITG3205:
         self.his_q3 = q3
 
     def read_data(self):
-        # global wa, c, frame_len, data, pre_time, now_time, delta_time, start
         while True:
             if self.ser.read() == b'\xaa' and self.ser.read() == b'\xaa':
                 if self.start:
@@ -249,9 +248,9 @@ class ITG3205:
                 else:
                     if self.start:
                         if self.filled:
-                            return self.data
+                            return self.data[60:80]
                         else:
-                            self.acc_filter(self.get_acc(self.data))
+                            self.acc_filter(self.get_acc(self.data[60:80]))
                 self.start = True
 
     def data_offset(self, cnt):
