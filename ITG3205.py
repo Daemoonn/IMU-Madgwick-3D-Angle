@@ -29,7 +29,6 @@ class ITG3205:
         (self.acc_offset_x, self.acc_offset_y, self.acc_offset_z) = (0,) * 3
         (self.gyro_offset_x, self.gyro_offset_y, self.gyro_offset_z) = (0,) * 3
 
-        self.q0, self.q1, self.q2, self.q3 = (1.0, 0.0, 0.0, 0.0)
         self.his_q0, self.his_q1, self.his_q2, self.his_q3 = (1.0, 0.0, 0.0, 0.0)
         self.angle = Angle()
         self.v = np.array([1.0, 0.0, 0.0])
@@ -54,10 +53,12 @@ class ITG3205:
         (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
         self.start = False
 
-    def bytes2int(self, x):
+    @staticmethod
+    def bytes2int(x):
         return int.from_bytes(x, byteorder='big', signed=True)
 
-    def get_angle(self, x, y):
+    @staticmethod
+    def get_angle(x, y):
         lx = np.sqrt(x.dot(x))
         ly = np.sqrt(y.dot(y))
         cos_angle = x.dot(y) / (lx * ly)
@@ -66,11 +67,12 @@ class ITG3205:
 
     def get_gyro(self, data):
         # 温度buff
-        temp = self.bytes2int(data[7] + data[6])
+        b2i = ITG3205.bytes2int
+        temp = b2i(data[7] + data[6])
         # 三轴角速度buff
-        x = self.bytes2int(data[1] + data[0]) - self.gyro_offset_x
-        y = self.bytes2int(data[3] + data[2]) - self.gyro_offset_y
-        z = self.bytes2int(data[5] + data[4]) - self.gyro_offset_z
+        x = b2i(data[1] + data[0]) - self.gyro_offset_x
+        y = b2i(data[3] + data[2]) - self.gyro_offset_y
+        z = b2i(data[5] + data[4]) - self.gyro_offset_z
         # print(x, y, z)
         return x, y, z, temp
 
@@ -92,9 +94,10 @@ class ITG3205:
         return x, y, z, temp
 
     def get_acc(self, data):
-        ax = self.bytes2int(data[-5] + data[-6]) - self.acc_offset_x
-        ay = self.bytes2int(data[-3] + data[-4]) - self.acc_offset_y
-        az = self.bytes2int(data[-1] + data[-2]) - self.acc_offset_z
+        b2i = ITG3205.bytes2int
+        ax = b2i(data[-5] + data[-6]) - self.acc_offset_x
+        ay = b2i(data[-3] + data[-4]) - self.acc_offset_y
+        az = b2i(data[-1] + data[-2]) - self.acc_offset_z
         return ax, ay, az
 
     def acc_filter(self, tup):
@@ -128,7 +131,6 @@ class ITG3205:
         return ax, ay, az
 
     def imu_update(self, gx, gy, gz, ax, ay, az):
-        # global q0, q1, q2, q3, his_q0, his_q1, his_q2, his_q3, ex_int, ey_int, ez_int, IMU_KP, IMU_KI
         half_T = self.delta_time / 2
 
         if ax * ay * az == 0:
@@ -150,13 +152,13 @@ class ITG3205:
         ez = (ax * vy - ay * vx)
 
         # 对误差进行PI计算
-        ex_int = self.ex_int + ex * ITG3205.IMU_KI
-        ey_int = self.ey_int + ey * ITG3205.IMU_KI
-        ez_int = self.ez_int + ez * ITG3205.IMU_KI
+        self.ex_int = self.ex_int + ex * ITG3205.IMU_KI
+        self.ey_int = self.ey_int + ey * ITG3205.IMU_KI
+        self.ez_int = self.ez_int + ez * ITG3205.IMU_KI
 
-        gx = gx + ITG3205.IMU_KP * ex + ex_int
-        gy = gy + ITG3205.IMU_KP * ey + ey_int
-        gz = gz + ITG3205.IMU_KP * ez + ez_int
+        gx = gx + ITG3205.IMU_KP * ex + self.ex_int
+        gy = gy + ITG3205.IMU_KP * ey + self.ey_int
+        gz = gz + ITG3205.IMU_KP * ez + self.ez_int
 
         # 四元素的微分方程
         q0 = self.his_q0 + (-self.his_q1 * gx - self.his_q2 * gy - self.his_q3 * gz) * half_T
@@ -207,10 +209,10 @@ class ITG3205:
               (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
 
         # 存储更替相应的四元数
-        his_q0 = q0
-        his_q1 = q1
-        his_q2 = q2
-        his_q3 = q3
+        self.his_q0 = q0
+        self.his_q1 = q1
+        self.his_q2 = q2
+        self.his_q3 = q3
 
     def read_data(self):
         # global wa, c, frame_len, data, pre_time, now_time, delta_time, start
@@ -263,8 +265,8 @@ class ITG3205:
             data_frame = self.read_data()
             t_Acc = Acc()
             t_Gyro = Gyro()
-            (t_Acc.x, t_Acc.y, t_Acc.z) = self.get_acc(self.data)
-            (t_Gyro.x, t_Gyro.y, t_Gyro.z, _) = self.get_gyro(self.data)
+            (t_Acc.x, t_Acc.y, t_Acc.z) = self.get_acc(data_frame)
+            (t_Gyro.x, t_Gyro.y, t_Gyro.z, _) = self.get_gyro(data_frame)
             sum_acc.x += t_Acc.x
             sum_acc.y += t_Acc.y
             # sum_acc.z += t_Acc.z
