@@ -2,6 +2,7 @@ import serial
 import datetime
 import math
 import numpy as np
+from multiprocessing import Process, Queue
 
 
 class Point:
@@ -21,11 +22,11 @@ class ITG3205:
     IMU_KP = 1.5
     IMU_KI = 0.0005
 
-    def __init__(self):
+    def __init__(self, input_q):
+        self.input_q = input_q
         self.filter_cnt = 0
         self.FILTER_LENGTH = 20
         self.acc_buff = [Acc] * self.FILTER_LENGTH
-        self.filled = False
         (self.acc_offset_x, self.acc_offset_y, self.acc_offset_z) = (0,) * 3
         (self.gyro_offset_x, self.gyro_offset_y, self.gyro_offset_z) = (0,) * 3
 
@@ -34,24 +35,16 @@ class ITG3205:
         self.v = np.array([1.0, 0.0, 0.0])
         # x、y、z轴的比例误差
         self.ex_int, self.ey_int, self.ez_int = (0.0, 0.0, 0.0)
-
-        self.ser = serial.Serial('COM6', 115200)
-
-        (self.wa, self.c) = (0,) * 2
         self.frame_len = 80
-        self.data = [0] * self.frame_len
-        (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
-        self.start = False
-
+        (self.pre_time, self.delta_time) = (datetime.datetime.now(),) * 2
+        self.filled = False
         self.data_offset(100)
-        self.re_init()
+        self.fill_acc_buff()
 
-    def re_init(self):
-        (self.wa, self.c) = (0,) * 2
-        self.frame_len = 80
-        self.data = [0] * self.frame_len
-        (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
-        self.start = False
+    def fill_acc_buff(self):
+        while not self.filled:
+            data_frame = self.read_data()
+            self.acc_filter(self.get_acc(data_frame))
 
     @staticmethod
     def bytes2int(x):
@@ -130,7 +123,7 @@ class ITG3205:
         # print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az))
         return ax, ay, az
 
-    def imu_update(self, gx, gy, gz, ax, ay, az):
+    def imu_update(self, gx, gy, gz, ax, ay, az, output_q):
         half_T = self.delta_time / 2
 
         if ax * ay * az == 0:
@@ -205,8 +198,9 @@ class ITG3205:
         self.angle.y = math.asin(-2 * q1q3 + 2 * q0q2)
         self.angle.z = math.atan2(2 * q1q2 + 2 * q0q3, -2 * q2q2 - 2 * q3q3 + 1)
 
-        print('A:%.2f H:%.2f V:%.2f R_x:%.2f' %
-              (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
+        # print('A:%.2f H:%.2f V:%.2f R_x:%.2f' %
+        #       (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
+        output_q.put(tv2)
 
         # 存储更替相应的四元数
         self.his_q0 = q0
@@ -215,43 +209,10 @@ class ITG3205:
         self.his_q3 = q3
 
     def read_data(self):
-        while True:
-            if self.ser.read() == b'\xaa' and self.ser.read() == b'\xaa':
-                if self.start:
-                    self.now_time = datetime.datetime.now()
-                    self.delta_time = (self.now_time - self.pre_time).microseconds / 1e6
-                    self.pre_time = self.now_time
-                else:
-                    self.pre_time = datetime.datetime.now()
-                cou = 0
-                self.c = self.c + 1
-                while True:
-                    t = self.ser.read()
-                    cou = cou + 1
-                    if t != b'\xee':
-                        if 0 <= cou - 1 < self.frame_len:
-                            self.data[cou - 1] = t
-                    else:
-                        t = self.ser.read()
-                        cou = cou + 1
-                        if t == b'\xee':
-                            cou = cou - 2
-                            break
-                        else:
-                            if 0 <= cou - 2 < self.frame_len:
-                                self.data[cou - 2] = b'\xee'
-                            if 0 <= cou - 1 < self.frame_len:
-                                self.data[cou - 1] = t
-                if cou != self.frame_len:
-                    self.wa = self.wa + 1
-                    print(str(self.wa) + ' in ' + str(self.c))
-                else:
-                    if self.start:
-                        if self.filled:
-                            return self.data[60:80]
-                        else:
-                            self.acc_filter(self.get_acc(self.data[60:80]))
-                self.start = True
+        data_frame, c_time = self.input_q.get(True)
+        self.delta_time = (c_time - self.pre_time).microseconds / 1e6
+        self.pre_time = c_time
+        return data_frame
 
     def data_offset(self, cnt):
         # global ser, wa, c, frame_len, data, pre_time, now_time, delta_time, start
@@ -287,11 +248,69 @@ class ITG3205:
                 break
 
 
-if __name__ == '__main__':
-    itg3205 = ITG3205()
-
+def process(input_q, output_q):
+    itg3205 = ITG3205(input_q)
     while True:
         data_frame = itg3205.read_data()
         ax, ay, az = itg3205.acc(itg3205.get_acc(data_frame))
         gx, gy, gz, _ = itg3205.angular_velocity(data_frame)
-        itg3205.imu_update(gx, gy, gz, ax, ay, az)
+        itg3205.imu_update(gx, gy, gz, ax, ay, az, output_q)
+
+
+def collect(output_q1, output_q2):
+    while True:
+        v1 = output_q1.get(True)
+        v2 = output_q2.get(True)
+        angle = ITG3205.get_angle(v1, v2)
+        print(v1)
+        print(v2)
+        print(angle)
+
+
+if __name__ == '__main__':
+    input_q1 = Queue()
+    output_q1 = Queue()
+    input_q2 = Queue()
+    output_q2 = Queue()
+
+    p1 = Process(target=process, args=(input_q1, output_q1))
+    p2 = Process(target=process, args=(input_q2, output_q2))
+    collector = Process(target=collect, args=(output_q1, output_q2))
+    p1.start()
+    p2.start()
+    collector.start()
+
+    print('processes started')
+
+    ser = serial.Serial('COM6', 115200)
+    frame_len = 80
+    data = [0] * frame_len
+
+    while True:
+        if ser.read() == b'\xaa' and ser.read() == b'\xaa':
+            now_time = datetime.datetime.now()
+            cou = 0
+            (wa, c) = (0,) * 2
+            while True:
+                t = ser.read()
+                cou = cou + 1
+                if t != b'\xee':
+                    if 0 <= cou - 1 < frame_len:
+                        data[cou - 1] = t
+                else:
+                    t = ser.read()
+                    cou = cou + 1
+                    if t == b'\xee':
+                        cou = cou - 2
+                        break
+                    else:
+                        if 0 <= cou - 2 < frame_len:
+                            data[cou - 2] = b'\xee'
+                        if 0 <= cou - 1 < frame_len:
+                            data[cou - 1] = t
+            if cou != frame_len:
+                wa = wa + 1
+                print(str(wa) + ' in ' + str(c))
+            else:
+                input_q1.put((data[0:20], now_time))
+                input_q2.put((data[60:80], now_time))
