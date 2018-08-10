@@ -22,6 +22,7 @@ class ITG3205:
     IMU_KI = 0.0005
 
     def __init__(self):
+        self.baud_cnt = 0
         self.filter_cnt = 0
         self.FILTER_LENGTH = 20
         self.acc_buff = [Acc] * self.FILTER_LENGTH
@@ -43,7 +44,9 @@ class ITG3205:
         (self.pre_time, self.now_time, self.delta_time) = (None,) * 3
         self.start = False
 
+        print('begin offset')
         self.data_offset(100)
+        print('finished offset')
         self.re_init()
 
     def re_init(self):
@@ -205,9 +208,9 @@ class ITG3205:
         self.angle.y = math.asin(-2 * q1q3 + 2 * q0q2)
         self.angle.z = math.atan2(2 * q1q2 + 2 * q0q3, -2 * q2q2 - 2 * q3q3 + 1)
 
-        print('A:%.2f H:%.2f V:%.2f R_x:%.2f' %
-              (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
-
+        # print('A:%.2f H:%.2f V:%.2f R_x:%.2f' %
+        #       (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
+        print(tv2, end='\r')
         # 存储更替相应的四元数
         self.his_q0 = q0
         self.his_q1 = q1
@@ -217,12 +220,15 @@ class ITG3205:
     def read_data(self):
         while True:
             if self.ser.read() == b'\xaa' and self.ser.read() == b'\xaa':
+                self.baud_cnt = self.baud_cnt + 1
                 if self.start:
-                    self.now_time = datetime.datetime.now()
-                    self.delta_time = (self.now_time - self.pre_time).microseconds / 1e6
-                    self.pre_time = self.now_time
+                    if self.baud_cnt >= 12:
+                        self.now_time = datetime.datetime.now()
+                        self.delta_time = (self.now_time - self.pre_time).microseconds / 1e6
+                        self.pre_time = self.now_time
                 else:
                     self.pre_time = datetime.datetime.now()
+                    self.baud_cnt = 0
                 cou = 0
                 self.c = self.c + 1
                 while True:
@@ -248,9 +254,14 @@ class ITG3205:
                 else:
                     if self.start:
                         if self.filled:
-                            return self.data[60:80]
+                            if self.baud_cnt >= 12:
+                                return self.data[60:80]
                         else:
-                            self.acc_filter(self.get_acc(self.data[60:80]))
+                            if self.baud_cnt >= 12:
+                                self.acc_filter(self.get_acc(self.data[60:80]))
+
+                if self.baud_cnt >= 12:
+                    self.baud_cnt = 0
                 self.start = True
 
     def data_offset(self, cnt):
