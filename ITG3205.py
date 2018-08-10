@@ -36,7 +36,7 @@ class ITG3205:
         # x、y、z轴的比例误差
         self.ex_int, self.ey_int, self.ez_int = (0.0, 0.0, 0.0)
         self.frame_len = 80
-        (self.pre_time, self.delta_time) = (datetime.datetime.now(),) * 2
+        (self.pre_time, self.delta_time) = (datetime.datetime.now(), None)
         self.filled = False
         self.data_offset(100)
         self.fill_acc_buff()
@@ -188,10 +188,10 @@ class ITG3205:
         # 起始向量(0, 1, 0)
         # tv2 = np.array([2 * (q1q2 - q0q3), 1 - 2 * (q1q1 + q3q3), 2 * (q2q3 + q0q1)])
 
-        h_tv2 = tv2.copy()
-        h_tv2[2] = 0.0
-        v_tv2 = tv2.copy()
-        v_tv2[1] = 0.0
+        # h_tv2 = tv2.copy()
+        # h_tv2[2] = 0.0
+        # v_tv2 = tv2.copy()
+        # v_tv2[1] = 0.0
 
         # 求解欧拉角
         self.angle.x = math.atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1)
@@ -285,12 +285,13 @@ if __name__ == '__main__':
     ser = serial.Serial('COM6', 115200)
     frame_len = 80
     data = [0] * frame_len
+    (wa, c) = (0,) * 2
 
     while True:
         if ser.read() == b'\xaa' and ser.read() == b'\xaa':
             now_time = datetime.datetime.now()
             cou = 0
-            (wa, c) = (0,) * 2
+            c = c + 1
             while True:
                 t = ser.read()
                 cou = cou + 1
@@ -312,5 +313,5 @@ if __name__ == '__main__':
                 wa = wa + 1
                 print(str(wa) + ' in ' + str(c))
             else:
-                input_q1.put((data[0:20], now_time))
+                input_q1.put((data[40:60], now_time))
                 input_q2.put((data[60:80], now_time))
