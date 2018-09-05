@@ -2,6 +2,7 @@ import serial
 import datetime
 import math
 import numpy as np
+import time
 from multiprocessing import Process, Queue
 
 
@@ -25,7 +26,7 @@ class ITG3205:
     def __init__(self, input_q):
         self.input_q = input_q
         self.filter_cnt = 0
-        self.FILTER_LENGTH = 20
+        self.FILTER_LENGTH = 3
         self.acc_buff = [Acc] * self.FILTER_LENGTH
         (self.acc_offset_x, self.acc_offset_y, self.acc_offset_z) = (0,) * 3
         (self.gyro_offset_x, self.gyro_offset_y, self.gyro_offset_z) = (0,) * 3
@@ -35,7 +36,7 @@ class ITG3205:
         self.v = np.array([1.0, 0.0, 0.0])
         # x、y、z轴的比例误差
         self.ex_int, self.ey_int, self.ez_int = (0.0, 0.0, 0.0)
-        self.frame_len = 80
+        self.frame_len = 20
         (self.pre_time, self.delta_time) = (datetime.datetime.now(), None)
         self.filled = False
         self.data_offset(100)
@@ -248,42 +249,8 @@ class ITG3205:
                 break
 
 
-def process(input_q, output_q):
-    itg3205 = ITG3205(input_q)
-    while True:
-        data_frame = itg3205.read_data()
-        ax, ay, az = itg3205.acc(itg3205.get_acc(data_frame))
-        gx, gy, gz, _ = itg3205.angular_velocity(data_frame)
-        itg3205.imu_update(gx, gy, gz, ax, ay, az, output_q)
-
-
-def collect(output_q1, output_q2):
-    while True:
-        v1 = output_q1.get(True)
-        v2 = output_q2.get(True)
-        angle = ITG3205.get_angle(v1, v2)
-        print(v1)
-        print(v2)
-        print(angle)
-
-
-if __name__ == '__main__':
-    input_q1 = Queue()
-    output_q1 = Queue()
-    input_q2 = Queue()
-    output_q2 = Queue()
-
-    p1 = Process(target=process, args=(input_q1, output_q1))
-    p2 = Process(target=process, args=(input_q2, output_q2))
-    collector = Process(target=collect, args=(output_q1, output_q2))
-    p1.start()
-    p2.start()
-    collector.start()
-
-    print('processes started')
-
-    ser = serial.Serial('COM6', 115200)
-    frame_len = 80
+def read(ser, input_q):
+    frame_len = 20
     data = [0] * frame_len
     (wa, c) = (0,) * 2
 
@@ -313,5 +280,106 @@ if __name__ == '__main__':
                 wa = wa + 1
                 print(str(wa) + ' in ' + str(c))
             else:
-                input_q1.put((data[40:60], now_time))
-                input_q2.put((data[60:80], now_time))
+                input_q.put((data, now_time))
+
+
+def process(input_q, output_q):
+    itg3205 = ITG3205(input_q)
+    while True:
+        data_frame = itg3205.read_data()
+        ax, ay, az = itg3205.acc(itg3205.get_acc(data_frame))
+        gx, gy, gz, _ = itg3205.angular_velocity(data_frame)
+        itg3205.imu_update(gx, gy, gz, ax, ay, az, output_q)
+
+
+def collect(output_q1, output_q2):
+    while True:
+        v1 = output_q1.get(True)
+        v2 = output_q2.get(True)
+        angle = ITG3205.get_angle(v1, v2)
+        # print(v1)
+        # print(v2)
+        print(angle)
+
+
+class MySerialManager(Process):
+    def __init__(self, serial_port, baudrate=9600, input_q=None):
+        super(MySerialManager, self).__init__(target=self.loop_iterator, args=(serial_port, baudrate, input_q))
+        # As soon as you uncomment this, you'll get an error.
+        # self.ser = serial.Serial(serial_port, baudrate=baudrate, timeout=timeout)
+
+    def loop_iterator(self, serial_port, baudrate, input_q):
+        ser = serial.Serial(serial_port, baudrate=baudrate)
+        self.loop(ser, input_q)
+
+    def loop(self, ser, input_q):
+        # Just some simple action for simplicity.
+        # you can use ser here
+        frame_len = 20
+        data = [0] * frame_len
+        (wa, c) = (0,) * 2
+
+        while True:
+            if ser.read() == b'\xaa' and ser.read() == b'\xaa':
+                now_time = datetime.datetime.now()
+                cou = 0
+                c = c + 1
+                while True:
+                    t = ser.read()
+                    cou = cou + 1
+                    if t != b'\xee':
+                        if 0 <= cou - 1 < frame_len:
+                            data[cou - 1] = t
+                    else:
+                        t = ser.read()
+                        cou = cou + 1
+                        if t == b'\xee':
+                            cou = cou - 2
+                            break
+                        else:
+                            if 0 <= cou - 2 < frame_len:
+                                data[cou - 2] = b'\xee'
+                            if 0 <= cou - 1 < frame_len:
+                                data[cou - 1] = t
+                if cou != frame_len:
+                    wa = wa + 1
+                    print(str(wa) + ' in ' + str(c))
+                else:
+                    input_q.put((data, now_time))
+
+
+if __name__ == '__main__':
+    input_q1 = Queue()
+    output_q1 = Queue()
+    input_q2 = Queue()
+    output_q2 = Queue()
+
+    p1 = Process(target=process, args=(input_q1, output_q1))
+    p2 = Process(target=process, args=(input_q2, output_q2))
+    collector = Process(target=collect, args=(output_q1, output_q2))
+    p1.start()
+    p2.start()
+    collector.start()
+
+    print('processes started')
+
+    msm1 = MySerialManager("COM5", 9600, input_q1)
+    msm2 = MySerialManager("COM7", 9600, input_q2)
+    # try:
+    msm1.start()
+    msm2.start()
+    # except KeyboardInterrupt:
+    #     print("caught in main")
+    # finally:
+    #     msm1.join()
+    #     msm2.join()
+    # ser1 = serial.Serial('COM5', 9600)
+    # ser2 = serial.Serial('COM7', 9600)
+    # print('Serial open success')
+    # r1 = Process(target=read, args=(ser1, input_q1))
+    # print('r1 created success')
+    # r2 = Process(target=read, args=(ser2, input_q2))
+    # print('r2 created success')
+    # r1.start()
+    # r2.start()
+
