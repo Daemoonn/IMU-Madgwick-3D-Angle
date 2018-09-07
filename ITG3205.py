@@ -84,15 +84,6 @@ class ITG3205:
 
     def angular_velocity(self, data):
         x, y, z, temp = self.get_gyro(data)
-        # print('x: %d y: %d z: %d' % (x, y, z))
-        # 设置三轴角速度阈值，防止静止状态下漂移
-        # threshold = 5
-        # if -threshold <= x <= threshold:
-        #     x = 0
-        # if -threshold <= y <= threshold:
-        #     y = 0
-        # if -threshold <= z <= threshold:
-        #     z = 0
         temp = 35 + (1.0 * temp + 13200) / 280
         x = x / 14.375 * math.pi / 180
         y = y / 14.375 * math.pi / 180
@@ -124,119 +115,6 @@ class ITG3205:
             tsum.z += self.acc_buff[i].z
 
         return tsum.x / length, tsum.y / length, tsum.z / length
-
-    # def acc(self, data):
-    #     ax, ay, az = self.acc_filter(data)
-    #     # pitch = math.atan2(ay, math.sqrt(ax * ax + az * az)) * 180 / math.pi
-    #     # roll = math.atan2(-ax, az) * 180 / math.pi
-    #     # print(pitch, roll, end='\r')
-    #     ax = 0.039 * ax
-    #     ay = 0.039 * ay
-    #     az = 0.039 * az
-    #     # print("ax: %.2f ay: %.2f az: %.2f" % (ax, ay, az))
-    #     return ax, ay, az
-
-    def invSqrt(self, x):
-        return 1.0 / x
-
-    # def imu_update(self, gx, gy, gz, ax, ay, az):
-    #     q0 = self.his_q0
-    #     q1 = self.his_q1
-    #     q2 = self.his_q2
-    #     q3 = self.his_q3
-    #     qDot1 = 0.5 * (-q1 * gx - q2 * gy - q3 * gz)
-    #     qDot2 = 0.5 * (q0 * gx + q2 * gz - q3 * gy)
-    #     qDot3 = 0.5 * (q0 * gy - q1 * gz + q3 * gx)
-    #     qDot4 = 0.5 * (q0 * gz + q1 * gy - q2 * gx)
-    #
-    #     if not ((ax == 0.0) and (ay == 0.0) and (az == 0.0)):
-    #         recipNorm = self.invSqrt(ax * ax + ay * ay + az * az)
-    #         ax *= recipNorm
-    #         ay *= recipNorm
-    #         az *= recipNorm
-    #
-    #         _2q0 = 2.0 * q0
-    #         _2q1 = 2.0 * q1
-    #         _2q2 = 2.0 * q2
-    #         _2q3 = 2.0 * q3
-    #         _4q0 = 4.0 * q0
-    #         _4q1 = 4.0 * q1
-    #         _4q2 = 4.0 * q2
-    #         _8q1 = 8.0 * q1
-    #         _8q2 = 8.0 * q2
-    #         q0q0 = q0 * q0
-    #         q1q1 = q1 * q1
-    #         q2q2 = q2 * q2
-    #         q3q3 = q3 * q3
-    #
-    #         s0 = _4q0 * q2q2 + _2q2 * ax + _4q0 * q1q1 - _2q1 * ay
-    #         s1 = _4q1 * q3q3 - _2q3 * ax + 4.0 * q0q0 * q1 - _2q0 * ay - _4q1 + _8q1 * q1q1 + _8q1 * q2q2 + _4q1 * az
-    #         s2 = 4.0 * q0q0 * q2 + _2q0 * ax + _4q2 * q3q3 - _2q3 * ay - _4q2 + _8q2 * q1q1 + _8q2 * q2q2 + _4q2 * az
-    #         s3 = 4.0 * q1q1 * q3 - _2q1 * ax + 4.0 * q2q2 * q3 - _2q2 * ay
-    #         recipNorm = self.invSqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3)
-    #         s0 *= recipNorm
-    #         s1 *= recipNorm
-    #         s2 *= recipNorm
-    #         s3 *= recipNorm
-    #
-    #         qDot1 -= self.beta * s0
-    #         qDot2 -= self.beta * s1
-    #         qDot3 -= self.beta * s2
-    #         qDot4 -= self.beta * s3
-    #
-    #     q0 += qDot1 * self.delta_time
-    #     q1 += qDot2 * self.delta_time
-    #     q2 += qDot3 * self.delta_time
-    #     q3 += qDot4 * self.delta_time
-    #
-    #     recipNorm = self.invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3)
-    #     q0 *= recipNorm
-    #     q1 *= recipNorm
-    #     q2 *= recipNorm
-    #     q3 *= recipNorm
-    #     # ---------------------------------
-    #     q0q0 = q0 * q0
-    #     q0q1 = q0 * q1
-    #     q0q2 = q0 * q2
-    #     q0q3 = q0 * q3
-    #     q1q1 = q1 * q1
-    #     q1q2 = q1 * q2
-    #     q1q3 = q1 * q3
-    #     q2q2 = q2 * q2
-    #     q2q3 = q2 * q3
-    #     q3q3 = q3 * q3
-    #
-    #     # 放在b系中算角度
-    #     # tv = np.array([2 * (q1q2 + q0q3), 1 - 2 * (q1q1 + q3q3), 2 * (q2q3 - q0q1)])
-    #
-    #     # 放在n系中算角度，用于多陀螺仪情况
-    #     # 起始向量(1, 0, 0)
-    #     tv2 = np.array([1 - 2 * (q2q2 + q3q3), 2 * (q1q2 + q0q3), 2 * (q1q3 - q0q2)])
-    #     # 起始向量(0, 0, 1)
-    #     # tv2 = np.array([2 * (q1q3 + q0q2), 2 * (q2q3 - q0q1), 1 - 2 * (q1q1 + q2q2)])
-    #     # 起始向量(0, 1, 0)
-    #     # tv2 = np.array([2 * (q1q2 - q0q3), 1 - 2 * (q1q1 + q3q3), 2 * (q2q3 + q0q1)])
-    #
-    #     h_tv2 = tv2.copy()
-    #     h_tv2[2] = 0.0
-    #     v_tv2 = tv2.copy()
-    #     v_tv2[1] = 0.0
-    #
-    #     # 求解欧拉角
-    #     self.angle.x = math.atan2(2 * q1q2 - 2 * q0q3, 2 * q0q0 + 2 * q1q1 - 1)
-    #     self.angle.y = -math.asin(2 * q1q3 + 2 * q0q2)
-    #     self.angle.z = math.atan2(2 * q2q3 - 2 * q0q1, 2 * q0q0 + 2 * q3q3 - 1)
-    #
-    #     print('x:%.2f y:%.2f z:%.2f' % (self.rad2angle(self.angle.x), self.rad2angle(self.angle.y), self.rad2angle(self.angle.z)))
-    #
-    #     # print('A:%.2f H:%.2f V:%.2f R_x:%.2f' %
-    #     #       (self.get_angle(self.v, tv2), self.get_angle(self.v, h_tv2), self.get_angle(self.v, v_tv2), self.angle.x * 57.3), end='\r')
-    #
-    #     # 存储更替相应的四元数
-    #     self.his_q0 = q0
-    #     self.his_q1 = q1
-    #     self.his_q2 = q2
-    #     self.his_q3 = q3
 
     def read_data(self):
         # global wa, c, frame_len, data, pre_time, now_time, delta_time, start
