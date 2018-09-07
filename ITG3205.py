@@ -22,7 +22,7 @@ class ITG3205:
     # IMU_KP = 1.5
     # IMU_KI = 0.0005
 
-    def __init__(self):
+    def __init__(self, port_num):
         self.filter_cnt = 0
         self.FILTER_LENGTH = 1
         self.beta = 3
@@ -37,7 +37,7 @@ class ITG3205:
         # x、y、z轴的比例误差
         self.ex_int, self.ey_int, self.ez_int = (0.0, 0.0, 0.0)
 
-        self.ser = serial.Serial('COM5', 9600)
+        self.ser = serial.Serial(port_num, 9600)
 
         (self.wa, self.c) = (0,) * 2
         self.frame_len = 20
@@ -151,6 +151,7 @@ class ITG3205:
                 else:
                     if self.start:
                         if self.filled:
+                            self.ser.flushInput()
                             return self.data
                         else:
                             self.acc_filter(self.get_acc(self.data))
@@ -191,24 +192,62 @@ class ITG3205:
 
 
 if __name__ == '__main__':
-    itg3205 = ITG3205()
+    itg3205 = ITG3205('COM6')
     madgwick = cdll.LoadLibrary('madgwick.so')
+    madgwick.MadgwickAHRSupdateIMU.restype = c_float
+    madgwick.MadgwickAHRSupdateIMU.argtypes = (c_float, c_float, c_float, c_float, c_float, c_float, c_float)
+    madgwick.get_theta.restype = c_float
+    madgwick.get_hori.restype = c_float
+    madgwick.get_ver.restype = c_float
+    madgwick.get_rx.restype = c_float
+    madgwick.get_vx.restype = c_float
+    madgwick.get_vy.restype = c_float
+    madgwick.get_vz.restype = c_float
+
+    itg3205_2 = ITG3205('COM7')
+    madgwick_2 = cdll.LoadLibrary('madgwick2.so')
+    madgwick_2.MadgwickAHRSupdateIMU.restype = c_float
+    madgwick_2.MadgwickAHRSupdateIMU.argtypes = (c_float, c_float, c_float, c_float, c_float, c_float, c_float)
+    madgwick_2.get_theta.restype = c_float
+    madgwick_2.get_hori.restype = c_float
+    madgwick_2.get_ver.restype = c_float
+    madgwick_2.get_rx.restype = c_float
+    madgwick_2.get_vx.restype = c_float
+    madgwick_2.get_vy.restype = c_float
+    madgwick_2.get_vz.restype = c_float
+
     while True:
         data_frame = itg3205.read_data()
         ax, ay, az = itg3205.get_acc(data_frame)
         gx, gy, gz, _ = itg3205.angular_velocity(data_frame)
-        madgwick.MadgwickAHRSupdateIMU.restype = c_float
-        madgwick.MadgwickAHRSupdateIMU.argtypes = (c_float, c_float, c_float, c_float, c_float, c_float, c_float)
         madgwick.MadgwickAHRSupdateIMU(gx, gy, gz, ax, ay, az, itg3205.delta_time)
-        madgwick.get_theta.restype = c_float
-        madgwick.get_hori.restype = c_float
-        madgwick.get_ver.restype = c_float
-        madgwick.get_rx.restype = c_float
-        theta = madgwick.get_theta()
-        hori = madgwick.get_hori()
-        ver = madgwick.get_ver()
-        r_x = madgwick.get_rx()
-        print('theta: %.2f hori: %.2f ver: %.2f r_x: %.2f' % (theta, hori, ver, r_x))
+        # theta = madgwick.get_theta()
+        # hori = madgwick.get_hori()
+        # ver = madgwick.get_ver()
+        # r_x = madgwick.get_rx()
+        # print('theta: %.2f hori: %.2f ver: %.2f r_x: %.2f' % (theta, hori, ver, r_x))
+        vx = madgwick.get_vx()
+        vy = madgwick.get_vy()
+        vz = madgwick.get_vz()
+
+        v = np.array([vx, vy, vz])
+
+        data_frame = itg3205_2.read_data()
+        ax, ay, az = itg3205_2.get_acc(data_frame)
+        gx, gy, gz, _ = itg3205_2.angular_velocity(data_frame)
+        madgwick_2.MadgwickAHRSupdateIMU(gx, gy, gz, ax, ay, az, itg3205_2.delta_time)
+        # theta_2 = madgwick_2.get_theta()
+        # hori_2 = madgwick_2.get_hori()
+        # ver_2 = madgwick_2.get_ver()
+        # r_x_2 = madgwick_2.get_rx()
+        # print('theta_2: %.2f hori_2: %.2f ver_2: %.2f r_x_2: %.2f' % (theta_2, hori_2, ver_2, r_x_2))
+
+        vx_2 = madgwick_2.get_vx()
+        vy_2 = madgwick_2.get_vy()
+        vz_2 = madgwick_2.get_vz()
+        v_2 = np.array([vx_2, vy_2, vz_2])
+
+        print('%.2f' % (180.0 - ITG3205.get_angle(v, v_2)))
         # madgwick.get_q0.restype = c_float
         # madgwick.get_q1.restype = c_float
         # madgwick.get_q2.restype = c_float
